@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Random Dice Clone</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -13,14 +13,17 @@
             background-color: #1a1b26;
             color: white;
             overflow: hidden;
-            touch-action: none; /* 모바일 드래그 방지 */
+            touch-action: none;
             user-select: none;
+            -webkit-user-select: none;
+            margin: 0; padding: 0;
         }
 
         #game-container {
-            position: relative;
-            width: 100vw;
-            height: 100vh;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%;
+            height: 100%;
             display: flex;
             flex-direction: column;
         }
@@ -28,21 +31,30 @@
         /* Top Bar */
         #ui-header {
             height: 60px;
+            min-height: 60px;
             background-color: #16161e;
             border-bottom: 2px solid #24283b;
             display: flex;
             justify-content: space-between;
             align-items: center;
             padding: 0 16px;
+            padding-top: env(safe-area-inset-top);
             z-index: 10;
         }
 
         /* Game Area */
-        #game-canvas {
+        #canvas-wrapper {
             flex-grow: 1;
+            position: relative;
             background-color: #1f2335;
             width: 100%;
+            overflow: hidden;
+        }
+
+        #game-canvas {
+            width: 100%;
             height: 100%;
+            display: block;
         }
 
         /* Bottom Controls */
@@ -57,7 +69,7 @@
 
         /* Stats Strip */
         #stats-bar {
-            height: 32px;
+            height: 36px;
             background-color: rgba(0,0,0,0.3);
             display: flex;
             justify-content: space-between;
@@ -108,7 +120,7 @@
         #summon-btn {
             height: 70px;
             width: 100%;
-            background: #7b61ff; /* Purple like original */
+            background: #7b61ff;
             color: white;
             display: flex;
             flex-direction: column;
@@ -130,6 +142,7 @@
             animation: floatUp 0.8s ease-out forwards;
             text-shadow: 1px 1px 0 #000;
             z-index: 5;
+            white-space: nowrap;
         }
 
         @keyframes floatUp {
@@ -156,61 +169,45 @@
 <body>
 
 <div id="game-container">
-    <!-- Header: Enemy, Wave, Time -->
     <div id="ui-header">
-        <!-- Enemy Status -->
         <div class="flex flex-col items-start w-24">
             <span class="text-[10px] text-blue-400 font-bold tracking-widest mb-1">ENEMY</span>
             <div class="flex gap-1">
                 <span class="heart-icon text-blue-500">❤❤❤</span>
             </div>
         </div>
-
-        <!-- Wave Center -->
         <div class="flex flex-col items-center">
             <span class="text-[10px] text-gray-400 font-bold mb-0.5">WAVE</span>
             <span id="wave-num" class="text-2xl font-black leading-none tracking-wider">1</span>
         </div>
-
-        <!-- Time & Best -->
         <div class="flex flex-col items-end w-24">
             <div class="text-[10px] text-gray-400 font-bold mb-0.5">TIME</div>
             <div id="game-time" class="font-mono text-lg font-bold text-green-400 leading-none">00:00</div>
         </div>
     </div>
 
-    <!-- Canvas Layer -->
-    <div style="position: relative; flex-grow: 1;">
+    <div id="canvas-wrapper">
         <canvas id="game-canvas"></canvas>
         <div id="damage-layer" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; overflow:hidden;"></div>
-        
-        <!-- Warning Banner (Hidden by default) -->
         <div id="warning-banner" class="hidden absolute top-1/2 left-0 w-full bg-red-600/80 text-white text-center py-2 font-bold tracking-widest transform -translate-y-1/2 pointer-events-none animate-pulse">
             WARNING: BOSS APPROACHING
         </div>
     </div>
 
-    <!-- Footer Controls -->
     <div id="ui-footer">
-        
-        <!-- Info Strip -->
         <div id="stats-bar">
-            <!-- Player Lives -->
             <div class="flex items-center gap-2">
                 <div class="flex gap-1" id="player-hearts">
                     <span class="heart-icon text-red-500">❤❤❤</span>
                 </div>
             </div>
-            
-            <!-- Resources -->
-            <div class="flex items-center gap-4 text-gray-300 font-mono">
+            <div class="flex items-center gap-3 text-xs md:text-sm text-gray-300 font-mono">
                 <div>SP: <span id="sp-amount" class="text-yellow-400">150</span></div>
                 <div>Cost: <span id="cost-display" class="text-pink-400">10</span></div>
-                <div>Dice: <span id="dice-count-display">0</span>/15</div>
+                <div><span id="dice-count-display">0</span>/15</div>
             </div>
         </div>
 
-        <!-- Upgrades -->
         <div class="upgrade-panel">
             <div class="upgrade-btn" onclick="game.upgradeDice(0)" style="border-bottom: 3px solid #9ece6a;">
                 <span class="mb-1 text-xs">바람</span>
@@ -239,14 +236,12 @@
             </div>
         </div>
 
-        <!-- Summon Button -->
         <div id="summon-btn" onclick="game.playerSummon()">
             <span id="summon-btn-text">주사위 소환</span>
             <span id="summon-cost-text">10 SP</span>
         </div>
     </div>
 
-    <!-- Game Over Modal -->
     <div id="game-over-modal">
         <h1 class="text-5xl font-black mb-2 text-white italic">GAME OVER</h1>
         <p class="mb-8 text-xl text-gray-300" id="final-score">Wave: 1</p>
@@ -257,6 +252,61 @@
 </div>
 
 <script>
+/**
+ * Sound Manager (Synthesizer)
+ * No external files required. Uses Web Audio API.
+ */
+const SoundMgr = {
+    ctx: null,
+    
+    init: function() {
+        if (!this.ctx) {
+            this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+        if (this.ctx.state === 'suspended') {
+            this.ctx.resume();
+        }
+    },
+
+    playTone: function(freq, type, duration, vol = 0.1) {
+        if (!this.ctx) return;
+        const osc = this.ctx.createOscillator();
+        const gain = this.ctx.createGain();
+        
+        osc.type = type;
+        osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+        
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.01, this.ctx.currentTime + duration);
+
+        osc.connect(gain);
+        gain.connect(this.ctx.destination);
+        
+        osc.start();
+        osc.stop(this.ctx.currentTime + duration);
+    },
+
+    // Sound Effects
+    playShoot: function() { this.playTone(600, 'triangle', 0.1, 0.05); },
+    playHit: function() { this.playTone(200, 'square', 0.1, 0.05); },
+    playSummon: function() { 
+        if(!this.ctx) return;
+        this.playTone(400, 'sine', 0.1, 0.1); 
+        setTimeout(() => this.playTone(600, 'sine', 0.2, 0.1), 100);
+    },
+    playMerge: function() {
+        if(!this.ctx) return;
+        this.playTone(800, 'sine', 0.1, 0.1); 
+        setTimeout(() => this.playTone(1200, 'sine', 0.3, 0.1), 50);
+    },
+    playUpgrade: function() {
+        if(!this.ctx) return;
+        this.playTone(300, 'square', 0.1, 0.1); 
+        setTimeout(() => this.playTone(500, 'square', 0.1, 0.1), 100);
+        setTimeout(() => this.playTone(800, 'square', 0.2, 0.1), 200);
+    }
+};
+
 /**
  * Game Configuration & Constants
  */
@@ -283,7 +333,7 @@ class Die {
         this.typeIdx = Math.floor(Math.random() * 5); // 0-4
         this.pips = 1;
         this.lastAttack = 0;
-        this.x = 0; // Screen coords
+        this.x = 0; // Screen coords (logical)
         this.y = 0;
         this.size = 0;
         this.isDragging = false;
@@ -294,6 +344,7 @@ class Die {
     upgrade() {
         this.typeIdx = Math.floor(Math.random() * 5);
         this.pips++;
+        SoundMgr.playMerge();
     }
 
     getStats(levels) {
@@ -322,6 +373,9 @@ class Enemy {
         this.color = isBoss ? '#bb9af7' : (pathId === 0 ? '#ff9e64' : '#f7768e');
         
         this.dead = false;
+        // Position caches
+        this.currX = 0;
+        this.currY = 0;
     }
 }
 
@@ -336,6 +390,7 @@ class Projectile {
         this.active = true;
         this.isPlayer = isPlayer;
         this.radius = 4;
+        SoundMgr.playShoot();
     }
 
     update() {
@@ -357,6 +412,7 @@ class Projectile {
 
     hit() {
         this.active = false;
+        SoundMgr.playHit();
         const info = DICE_TYPES[this.typeIdx];
         
         if (info.type === 'slow') {
@@ -373,6 +429,7 @@ class Projectile {
 class Game {
     constructor() {
         this.canvas = document.getElementById('game-canvas');
+        this.wrapper = document.getElementById('canvas-wrapper');
         this.ctx = this.canvas.getContext('2d');
         this.damageLayer = document.getElementById('damage-layer');
 
@@ -383,7 +440,7 @@ class Game {
         this.projectiles = [];
         
         this.wave = 1;
-        this.sp = 150; // Initial SP set to 150
+        this.sp = 150;
         this.lives = 3;
         this.summonCost = 10;
         this.aiSummonCost = 10;
@@ -396,6 +453,7 @@ class Game {
         this.upgradeCosts = [100, 100, 100, 100, 100];
 
         // Geometry
+        this.dpr = window.devicePixelRatio || 1;
         this.slotSize = 0;
         this.topBoardOffset = 0;
         this.bottomBoardOffset = 0;
@@ -412,20 +470,28 @@ class Game {
         this.resize();
         window.addEventListener('resize', () => this.resize());
         
-        // Listeners
-        this.canvas.addEventListener('mousedown', (e) => this.handleInputStart(e));
+        // Listeners - Init Audio on first interaction
+        const inputStart = (e) => {
+            SoundMgr.init();
+            this.handleInputStart(e);
+        };
+
+        this.canvas.addEventListener('mousedown', inputStart);
         this.canvas.addEventListener('mousemove', (e) => this.handleInputMove(e));
         this.canvas.addEventListener('mouseup', (e) => this.handleInputEnd(e));
         
         this.canvas.addEventListener('touchstart', (e) => {
             const touch = e.touches[0];
+            SoundMgr.init();
             this.handleInputStart({ clientX: touch.clientX, clientY: touch.clientY });
         }, {passive: false});
+        
         this.canvas.addEventListener('touchmove', (e) => {
             e.preventDefault();
             const touch = e.touches[0];
             this.handleInputMove({ clientX: touch.clientX, clientY: touch.clientY });
         }, {passive: false});
+        
         this.canvas.addEventListener('touchend', (e) => this.handleInputEnd(e));
 
         // Start Loop
@@ -436,20 +502,38 @@ class Game {
     }
 
     resize() {
-        this.canvas.width = this.canvas.offsetWidth;
-        this.canvas.height = this.canvas.offsetHeight;
+        // Handle High DPI (Retina/Galaxy displays)
+        const rect = this.wrapper.getBoundingClientRect();
+        this.canvas.width = rect.width * this.dpr;
+        this.canvas.height = rect.height * this.dpr;
         
-        const w = this.canvas.width;
-        const h = this.canvas.height;
+        // Scale context to match
+        this.ctx.scale(this.dpr, this.dpr);
         
-        const maxW = (w * 0.9) / 5;
-        const maxH = (h * 0.35) / 3;
+        // Logical Width/Height
+        const w = rect.width;
+        const h = rect.height;
+        
+        // Calculate Grid Size: Maximize width usage, but constrain height
+        const maxW = (w * 0.95) / 5; // 5 columns
+        const maxH = (h * 0.4) / 3;  // 3 rows, take max 40% of height per board
         this.slotSize = Math.min(maxW, maxH);
         
         this.boardMarginX = (w - (this.slotSize * 5)) / 2;
         
-        this.topBoardOffset = h * 0.08;
-        this.bottomBoardOffset = h * 0.55;
+        // Center the boards vertically in the available space
+        const boardHeight = this.slotSize * 3;
+        
+        // Top Board (AI) Center in top half
+        this.topBoardOffset = (h * 0.25) - (boardHeight / 2);
+        if (this.topBoardOffset < 10) this.topBoardOffset = 10;
+
+        // Bottom Board (Player) Center in bottom half
+        this.bottomBoardOffset = (h * 0.75) - (boardHeight / 2);
+        // Ensure they don't overlap
+        if (this.bottomBoardOffset < this.topBoardOffset + boardHeight + 20) {
+            this.bottomBoardOffset = this.topBoardOffset + boardHeight + 20;
+        }
         
         this.updateDicePositions();
     }
@@ -468,20 +552,28 @@ class Game {
         update(this.playerBoard, this.bottomBoardOffset);
     }
 
+    // Input Handling
+    getMousePos(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        return {
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+        };
+    }
+
     handleInputStart(e) {
         if (this.isGameOver) return;
-        const rect = this.canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
+        const {x, y} = this.getMousePos(e);
 
         for (let d of this.playerBoard) {
-            const dx = mx - d.x;
-            const dy = my - d.y;
+            const dx = x - d.x;
+            const dy = y - d.y;
+            // Check radius click
             if (dx*dx + dy*dy < (d.size/2)*(d.size/2)) {
                 this.draggedDie = d;
                 this.draggedDie.isDragging = true;
-                this.draggedDie.dragX = mx;
-                this.draggedDie.dragY = my;
+                this.draggedDie.dragX = x;
+                this.draggedDie.dragY = y;
                 return;
             }
         }
@@ -489,14 +581,15 @@ class Game {
 
     handleInputMove(e) {
         if (!this.draggedDie) return;
-        const rect = this.canvas.getBoundingClientRect();
-        this.draggedDie.dragX = e.clientX - rect.left;
-        this.draggedDie.dragY = e.clientY - rect.top;
+        const {x, y} = this.getMousePos(e);
+        this.draggedDie.dragX = x;
+        this.draggedDie.dragY = y;
     }
 
     handleInputEnd(e) {
         if (!this.draggedDie) return;
         
+        // Find drop target
         const target = this.getDieAt(this.draggedDie.dragX, this.draggedDie.dragY);
         
         if (target && target !== this.draggedDie) {
@@ -527,6 +620,7 @@ class Game {
             this.summonCost += 10;
             this.spawnDie(true);
             this.updateUI();
+            SoundMgr.playSummon();
         }
     }
 
@@ -574,12 +668,14 @@ class Game {
     }
 
     upgradeDice(typeIdx) {
+        SoundMgr.init();
         const cost = this.upgradeCosts[typeIdx];
         if (this.sp >= cost && this.diceLevels[typeIdx] < 5) {
             this.sp -= cost;
             this.diceLevels[typeIdx]++;
             this.upgradeCosts[typeIdx] += 100;
             this.updateUI();
+            SoundMgr.playUpgrade();
         }
     }
 
@@ -634,14 +730,15 @@ class Game {
     }
 
     createMergeEffect(x, y) {
-        // Could add particle visual here
+        // Visual effect placeholder
     }
 
     getEnemyPos(enemy) {
-        const w = this.canvas.width;
+        const rect = this.wrapper.getBoundingClientRect();
+        const w = rect.width;
         
         if (enemy.pathId === 0) {
-            // Top Board: Simple straight line for now
+            // Top Board
             const boardCenterY = this.topBoardOffset + (GRID_ROWS * this.slotSize)/2;
             return { x: enemy.progress * w, y: boardCenterY };
         } else {
@@ -667,9 +764,10 @@ class Game {
 
         this.updateTime();
 
-        // Clear & Draw BG
+        // Clear & Draw BG (using logical coordinates for fillRect because we scaled)
+        const rect = this.wrapper.getBoundingClientRect();
         this.ctx.fillStyle = CANVAS_BG;
-        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+        this.ctx.fillRect(0, 0, rect.width, rect.height);
 
         // Draw Grids
         this.drawGrid(this.topBoardOffset);
@@ -691,6 +789,7 @@ class Game {
         this.aiLogic();
 
         // Process Enemies
+        const logicalWidth = rect.width;
         this.enemies = this.enemies.filter(e => {
             if (e.dead) return false;
             
@@ -699,7 +798,7 @@ class Game {
                 moveSpeed *= 0.6;
                 e.slowTimer--;
             }
-            e.progress += moveSpeed / (this.canvas.width / 5);
+            e.progress += moveSpeed / (logicalWidth / 5);
             
             const pos = this.getEnemyPos(e);
             e.currX = pos.x;
