@@ -1,0 +1,866 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Random Dice Clone</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
+        
+        body {
+            font-family: 'Noto Sans KR', sans-serif;
+            background-color: #1a1b26;
+            color: white;
+            overflow: hidden;
+            touch-action: none; /* 모바일 드래그 방지 */
+            user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Top Bar */
+        #ui-header {
+            height: 60px;
+            background-color: #16161e;
+            border-bottom: 2px solid #24283b;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 16px;
+            z-index: 10;
+        }
+
+        /* Game Area */
+        #game-canvas {
+            flex-grow: 1;
+            background-color: #1f2335;
+            width: 100%;
+            height: 100%;
+        }
+
+        /* Bottom Controls */
+        #ui-footer {
+            background-color: #16161e;
+            border-top: 2px solid #24283b;
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+            padding-bottom: env(safe-area-inset-bottom);
+        }
+
+        /* Stats Strip */
+        #stats-bar {
+            height: 32px;
+            background-color: rgba(0,0,0,0.3);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 16px;
+            font-size: 0.8rem;
+            font-weight: bold;
+            border-bottom: 1px solid #24283b;
+        }
+
+        /* Upgrade Panel */
+        .upgrade-panel {
+            display: flex;
+            height: 80px;
+            width: 100%;
+        }
+
+        .upgrade-btn {
+            flex: 1;
+            border-right: 1px solid #24283b;
+            background: #1a1b26;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 0.7rem;
+            color: #a9b1d6;
+            cursor: pointer;
+            transition: background 0.1s;
+            position: relative;
+        }
+        
+        .upgrade-btn:last-child { border-right: none; }
+        .upgrade-btn:active { background: #24283b; }
+        .upgrade-cost { color: #f7768e; margin-top: 2px; }
+        .upgrade-level { 
+            position: absolute; 
+            top: 4px; 
+            right: 4px; 
+            font-size: 0.6rem; 
+            color: #7aa2f7; 
+            background: rgba(0,0,0,0.4);
+            padding: 1px 4px;
+            border-radius: 4px;
+        }
+
+        /* Summon Button */
+        #summon-btn {
+            height: 70px;
+            width: 100%;
+            background: #7b61ff; /* Purple like original */
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: background 0.2s;
+            border-top: 1px solid #5a45cc;
+        }
+        #summon-btn:active { background: #5f3dc4; }
+        #summon-btn-text { font-size: 1.1rem; font-weight: 800; letter-spacing: 1px; }
+        #summon-cost-text { font-size: 0.85rem; opacity: 0.9; font-family: monospace; }
+
+        /* Floating Damage */
+        .damage-text {
+            position: absolute;
+            font-weight: bold;
+            pointer-events: none;
+            animation: floatUp 0.8s ease-out forwards;
+            text-shadow: 1px 1px 0 #000;
+            z-index: 5;
+        }
+
+        @keyframes floatUp {
+            0% { transform: translateY(0) scale(1); opacity: 1; }
+            100% { transform: translateY(-30px) scale(0.8); opacity: 0; }
+        }
+
+        /* Modal */
+        #game-over-modal {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(4px);
+            justify-content: center;
+            align-items: center;
+            flex-direction: column;
+            z-index: 100;
+        }
+
+        .heart-icon { font-size: 1.2rem; line-height: 1; }
+    </style>
+</head>
+<body>
+
+<div id="game-container">
+    <!-- Header: Enemy, Wave, Time -->
+    <div id="ui-header">
+        <!-- Enemy Status -->
+        <div class="flex flex-col items-start w-24">
+            <span class="text-[10px] text-blue-400 font-bold tracking-widest mb-1">ENEMY</span>
+            <div class="flex gap-1">
+                <span class="heart-icon text-blue-500">❤❤❤</span>
+            </div>
+        </div>
+
+        <!-- Wave Center -->
+        <div class="flex flex-col items-center">
+            <span class="text-[10px] text-gray-400 font-bold mb-0.5">WAVE</span>
+            <span id="wave-num" class="text-2xl font-black leading-none tracking-wider">1</span>
+        </div>
+
+        <!-- Time & Best -->
+        <div class="flex flex-col items-end w-24">
+            <div class="text-[10px] text-gray-400 font-bold mb-0.5">TIME</div>
+            <div id="game-time" class="font-mono text-lg font-bold text-green-400 leading-none">00:00</div>
+        </div>
+    </div>
+
+    <!-- Canvas Layer -->
+    <div style="position: relative; flex-grow: 1;">
+        <canvas id="game-canvas"></canvas>
+        <div id="damage-layer" style="position:absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; overflow:hidden;"></div>
+        
+        <!-- Warning Banner (Hidden by default) -->
+        <div id="warning-banner" class="hidden absolute top-1/2 left-0 w-full bg-red-600/80 text-white text-center py-2 font-bold tracking-widest transform -translate-y-1/2 pointer-events-none animate-pulse">
+            WARNING: BOSS APPROACHING
+        </div>
+    </div>
+
+    <!-- Footer Controls -->
+    <div id="ui-footer">
+        
+        <!-- Info Strip -->
+        <div id="stats-bar">
+            <!-- Player Lives -->
+            <div class="flex items-center gap-2">
+                <div class="flex gap-1" id="player-hearts">
+                    <span class="heart-icon text-red-500">❤❤❤</span>
+                </div>
+            </div>
+            
+            <!-- Resources -->
+            <div class="flex items-center gap-4 text-gray-300 font-mono">
+                <div>SP: <span id="sp-amount" class="text-yellow-400">150</span></div>
+                <div>Cost: <span id="cost-display" class="text-pink-400">10</span></div>
+                <div>Dice: <span id="dice-count-display">0</span>/15</div>
+            </div>
+        </div>
+
+        <!-- Upgrades -->
+        <div class="upgrade-panel">
+            <div class="upgrade-btn" onclick="game.upgradeDice(0)" style="border-bottom: 3px solid #9ece6a;">
+                <span class="mb-1 text-xs">바람</span>
+                <div class="upgrade-cost" id="cost-0">100</div>
+                <div class="upgrade-level" id="lv-0">Lv.1</div>
+            </div>
+            <div class="upgrade-btn" onclick="game.upgradeDice(1)" style="border-bottom: 3px solid #f7768e;">
+                <span class="mb-1 text-xs">불</span>
+                <div class="upgrade-cost" id="cost-1">100</div>
+                <div class="upgrade-level" id="lv-1">Lv.1</div>
+            </div>
+            <div class="upgrade-btn" onclick="game.upgradeDice(2)" style="border-bottom: 3px solid #7dcfff;">
+                <span class="mb-1 text-xs">얼음</span>
+                <div class="upgrade-cost" id="cost-2">100</div>
+                <div class="upgrade-level" id="lv-2">Lv.1</div>
+            </div>
+            <div class="upgrade-btn" onclick="game.upgradeDice(3)" style="border-bottom: 3px solid #a9b1d6;">
+                <span class="mb-1 text-xs">쇠</span>
+                <div class="upgrade-cost" id="cost-3">100</div>
+                <div class="upgrade-level" id="lv-3">Lv.1</div>
+            </div>
+            <div class="upgrade-btn" onclick="game.upgradeDice(4)" style="border-bottom: 3px solid #e0af68;">
+                <span class="mb-1 text-xs">전기</span>
+                <div class="upgrade-cost" id="cost-4">100</div>
+                <div class="upgrade-level" id="lv-4">Lv.1</div>
+            </div>
+        </div>
+
+        <!-- Summon Button -->
+        <div id="summon-btn" onclick="game.playerSummon()">
+            <span id="summon-btn-text">주사위 소환</span>
+            <span id="summon-cost-text">10 SP</span>
+        </div>
+    </div>
+
+    <!-- Game Over Modal -->
+    <div id="game-over-modal">
+        <h1 class="text-5xl font-black mb-2 text-white italic">GAME OVER</h1>
+        <p class="mb-8 text-xl text-gray-300" id="final-score">Wave: 1</p>
+        <button onclick="location.reload()" class="px-8 py-4 bg-[#7b61ff] rounded-lg text-white font-bold hover:bg-[#5f3dc4] shadow-lg transform transition hover:scale-105">
+            다시 도전하기
+        </button>
+    </div>
+</div>
+
+<script>
+/**
+ * Game Configuration & Constants
+ */
+const DICE_TYPES = [
+    { name: 'Wind', color: '#9ece6a', damage: 10, speed: 600, type: 'normal' },
+    { name: 'Fire', color: '#f7768e', damage: 40, speed: 1000, type: 'splash' },
+    { name: 'Ice', color: '#7dcfff', damage: 5, speed: 1000, type: 'slow' },
+    { name: 'Iron', color: '#a9b1d6', damage: 80, speed: 1200, type: 'boss_killer' },
+    { name: 'Electric', color: '#e0af68', damage: 20, speed: 900, type: 'chain' }
+];
+
+const GRID_ROWS = 3;
+const GRID_COLS = 5;
+const CANVAS_BG = '#1f2335';
+
+/**
+ * Game Classes
+ */
+class Die {
+    constructor(row, col, isPlayer) {
+        this.row = row;
+        this.col = col;
+        this.isPlayer = isPlayer;
+        this.typeIdx = Math.floor(Math.random() * 5); // 0-4
+        this.pips = 1;
+        this.lastAttack = 0;
+        this.x = 0; // Screen coords
+        this.y = 0;
+        this.size = 0;
+        this.isDragging = false;
+        this.dragX = 0;
+        this.dragY = 0;
+    }
+
+    upgrade() {
+        this.typeIdx = Math.floor(Math.random() * 5);
+        this.pips++;
+    }
+
+    getStats(levels) {
+        const base = DICE_TYPES[this.typeIdx];
+        const level = levels[this.typeIdx];
+        const dmg = base.damage + (base.damage * 0.2 * (level - 1)); 
+        const speed = Math.max(200, base.speed - (this.pips * 50)); 
+        return { ...base, damage: Math.floor(dmg), speed };
+    }
+}
+
+class Enemy {
+    constructor(wave, isBoss, pathId) {
+        this.pathId = pathId; // 0: Top (AI), 1: Bottom (Player)
+        this.progress = 0;
+        this.speed = 0.05 + (wave * 0.005);
+        if(this.speed > 0.3) this.speed = 0.3;
+        
+        this.isBoss = isBoss;
+        const hpMult = isBoss ? 20 : 1;
+        this.maxHp = Math.floor((100 + (wave * 20) + (Math.pow(wave, 1.5) * 5)) * hpMult);
+        this.hp = this.maxHp;
+        
+        this.slowTimer = 0;
+        this.radius = isBoss ? 25 : 12;
+        this.color = isBoss ? '#bb9af7' : (pathId === 0 ? '#ff9e64' : '#f7768e');
+        
+        this.dead = false;
+    }
+}
+
+class Projectile {
+    constructor(x, y, target, typeIdx, damage, isPlayer) {
+        this.x = x;
+        this.y = y;
+        this.target = target;
+        this.typeIdx = typeIdx;
+        this.damage = damage;
+        this.speed = 15;
+        this.active = true;
+        this.isPlayer = isPlayer;
+        this.radius = 4;
+    }
+
+    update() {
+        if (!this.target || this.target.dead) {
+            this.active = false;
+            return;
+        }
+        const dx = this.target.currX - this.x;
+        const dy = this.target.currY - this.y;
+        const dist = Math.hypot(dx, dy);
+        
+        if (dist < this.speed) {
+            this.hit();
+        } else {
+            this.x += (dx / dist) * this.speed;
+            this.y += (dy / dist) * this.speed;
+        }
+    }
+
+    hit() {
+        this.active = false;
+        const info = DICE_TYPES[this.typeIdx];
+        
+        if (info.type === 'slow') {
+            this.target.slowTimer = 60;
+        } else if (info.type === 'splash') {
+            game.splashDamage(this.target, this.damage, this.target.pathId);
+            return;
+        }
+
+        game.dealDamage(this.target, this.damage, info.color);
+    }
+}
+
+class Game {
+    constructor() {
+        this.canvas = document.getElementById('game-canvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.damageLayer = document.getElementById('damage-layer');
+
+        // State
+        this.playerBoard = [];
+        this.aiBoard = [];
+        this.enemies = [];
+        this.projectiles = [];
+        
+        this.wave = 1;
+        this.sp = 150; // Initial SP set to 150
+        this.lives = 3;
+        this.summonCost = 10;
+        this.aiSummonCost = 10;
+        this.aiSp = 100;
+        
+        this.startTime = Date.now();
+        this.gameTime = 0;
+
+        this.diceLevels = [1, 1, 1, 1, 1];
+        this.upgradeCosts = [100, 100, 100, 100, 100];
+
+        // Geometry
+        this.slotSize = 0;
+        this.topBoardOffset = 0;
+        this.bottomBoardOffset = 0;
+        this.boardMarginX = 0;
+
+        // Input
+        this.draggedDie = null;
+
+        // Loops
+        this.lastTime = 0;
+        this.spawnTimer = 0;
+        this.isGameOver = false;
+
+        this.resize();
+        window.addEventListener('resize', () => this.resize());
+        
+        // Listeners
+        this.canvas.addEventListener('mousedown', (e) => this.handleInputStart(e));
+        this.canvas.addEventListener('mousemove', (e) => this.handleInputMove(e));
+        this.canvas.addEventListener('mouseup', (e) => this.handleInputEnd(e));
+        
+        this.canvas.addEventListener('touchstart', (e) => {
+            const touch = e.touches[0];
+            this.handleInputStart({ clientX: touch.clientX, clientY: touch.clientY });
+        }, {passive: false});
+        this.canvas.addEventListener('touchmove', (e) => {
+            e.preventDefault();
+            const touch = e.touches[0];
+            this.handleInputMove({ clientX: touch.clientX, clientY: touch.clientY });
+        }, {passive: false});
+        this.canvas.addEventListener('touchend', (e) => this.handleInputEnd(e));
+
+        // Start Loop
+        this.loop = this.loop.bind(this);
+        requestAnimationFrame(this.loop);
+        
+        this.updateUI();
+    }
+
+    resize() {
+        this.canvas.width = this.canvas.offsetWidth;
+        this.canvas.height = this.canvas.offsetHeight;
+        
+        const w = this.canvas.width;
+        const h = this.canvas.height;
+        
+        const maxW = (w * 0.9) / 5;
+        const maxH = (h * 0.35) / 3;
+        this.slotSize = Math.min(maxW, maxH);
+        
+        this.boardMarginX = (w - (this.slotSize * 5)) / 2;
+        
+        this.topBoardOffset = h * 0.08;
+        this.bottomBoardOffset = h * 0.55;
+        
+        this.updateDicePositions();
+    }
+
+    updateDicePositions() {
+        const update = (board, offsetY) => {
+            board.forEach(d => {
+                if (!d.isDragging) {
+                    d.x = this.boardMarginX + d.col * this.slotSize + this.slotSize/2;
+                    d.y = offsetY + d.row * this.slotSize + this.slotSize/2;
+                    d.size = this.slotSize * 0.85;
+                }
+            });
+        };
+        update(this.aiBoard, this.topBoardOffset);
+        update(this.playerBoard, this.bottomBoardOffset);
+    }
+
+    handleInputStart(e) {
+        if (this.isGameOver) return;
+        const rect = this.canvas.getBoundingClientRect();
+        const mx = e.clientX - rect.left;
+        const my = e.clientY - rect.top;
+
+        for (let d of this.playerBoard) {
+            const dx = mx - d.x;
+            const dy = my - d.y;
+            if (dx*dx + dy*dy < (d.size/2)*(d.size/2)) {
+                this.draggedDie = d;
+                this.draggedDie.isDragging = true;
+                this.draggedDie.dragX = mx;
+                this.draggedDie.dragY = my;
+                return;
+            }
+        }
+    }
+
+    handleInputMove(e) {
+        if (!this.draggedDie) return;
+        const rect = this.canvas.getBoundingClientRect();
+        this.draggedDie.dragX = e.clientX - rect.left;
+        this.draggedDie.dragY = e.clientY - rect.top;
+    }
+
+    handleInputEnd(e) {
+        if (!this.draggedDie) return;
+        
+        const target = this.getDieAt(this.draggedDie.dragX, this.draggedDie.dragY);
+        
+        if (target && target !== this.draggedDie) {
+            if (target.typeIdx === this.draggedDie.typeIdx && target.pips === this.draggedDie.pips && target.pips < 7) {
+                target.upgrade();
+                this.playerBoard = this.playerBoard.filter(d => d !== this.draggedDie);
+                this.createMergeEffect(target.x, target.y);
+            }
+        }
+
+        this.draggedDie.isDragging = false;
+        this.draggedDie = null;
+        this.updateDicePositions();
+    }
+
+    getDieAt(x, y) {
+        for (let d of this.playerBoard) {
+            const dx = x - d.x;
+            const dy = y - d.y;
+            if (dx*dx + dy*dy < (d.size/2)*(d.size/2)) return d;
+        }
+        return null;
+    }
+
+    playerSummon() {
+        if (this.sp >= this.summonCost && this.playerBoard.length < 15) {
+            this.sp -= this.summonCost;
+            this.summonCost += 10;
+            this.spawnDie(true);
+            this.updateUI();
+        }
+    }
+
+    aiLogic() {
+        // Simple AI: Summon and Merge
+        if (this.aiSp >= this.aiSummonCost && this.aiBoard.length < 15) {
+            this.aiSp -= this.aiSummonCost;
+            this.aiSummonCost += 10;
+            this.spawnDie(false);
+        }
+        
+        if (Math.random() < 0.02) {
+            for (let i=0; i<this.aiBoard.length; i++) {
+                for (let j=i+1; j<this.aiBoard.length; j++) {
+                    let d1 = this.aiBoard[i];
+                    let d2 = this.aiBoard[j];
+                    if (d1.typeIdx === d2.typeIdx && d1.pips === d2.pips && d1.pips < 7) {
+                        d1.upgrade();
+                        this.aiBoard.splice(j, 1);
+                        this.updateDicePositions();
+                        return;
+                    }
+                }
+            }
+        }
+        if (Math.random() < 0.05) this.aiSp++;
+    }
+
+    spawnDie(isPlayer) {
+        let emptySlots = [];
+        for(let r=0; r<GRID_ROWS; r++) {
+            for(let c=0; c<GRID_COLS; c++) {
+                const occupied = (isPlayer ? this.playerBoard : this.aiBoard).some(d => d.row === r && d.col === c);
+                if (!occupied) emptySlots.push({r,c});
+            }
+        }
+        
+        if (emptySlots.length > 0) {
+            const slot = emptySlots[Math.floor(Math.random() * emptySlots.length)];
+            const die = new Die(slot.r, slot.c, isPlayer);
+            if (isPlayer) this.playerBoard.push(die);
+            else this.aiBoard.push(die);
+            this.updateDicePositions();
+        }
+    }
+
+    upgradeDice(typeIdx) {
+        const cost = this.upgradeCosts[typeIdx];
+        if (this.sp >= cost && this.diceLevels[typeIdx] < 5) {
+            this.sp -= cost;
+            this.diceLevels[typeIdx]++;
+            this.upgradeCosts[typeIdx] += 100;
+            this.updateUI();
+        }
+    }
+
+    spawnEnemy() {
+        const isBoss = (this.wave % 10 === 0 && this.spawnTimer > 100);
+        
+        // Visual Warning
+        if ((this.wave % 10 === 0) && this.spawnTimer === 0) {
+            const banner = document.getElementById('warning-banner');
+            banner.classList.remove('hidden');
+            setTimeout(() => banner.classList.add('hidden'), 3000);
+        }
+
+        this.enemies.push(new Enemy(this.wave, isBoss, 0));
+        this.enemies.push(new Enemy(this.wave, isBoss, 1));
+    }
+
+    dealDamage(enemy, amount, color) {
+        enemy.hp -= amount;
+        this.showDamage(enemy.currX, enemy.currY, amount, color);
+        if (enemy.hp <= 0 && !enemy.dead) {
+            enemy.dead = true;
+            this.sp += (enemy.isBoss ? 100 : 10);
+            this.aiSp += (enemy.isBoss ? 100 : 10);
+            this.updateUI();
+        }
+    }
+    
+    splashDamage(target, amount, pathId) {
+        this.enemies.forEach(e => {
+            if (!e.dead && e.pathId === pathId) {
+                const dist = Math.hypot(e.currX - target.currX, e.currY - target.currY);
+                if (dist < 80) {
+                    this.dealDamage(e, Math.floor(amount * 0.5), '#ff0000');
+                }
+            }
+        });
+        this.dealDamage(target, amount, '#ff0000');
+    }
+
+    showDamage(x, y, amount, color) {
+        const el = document.createElement('div');
+        el.className = 'damage-text';
+        el.innerText = amount;
+        el.style.left = x + 'px';
+        el.style.top = y + 'px';
+        el.style.color = color;
+        el.style.fontSize = Math.min(12 + amount/5, 24) + 'px';
+        el.style.transform = `translate(${Math.random()*20-10}px, 0)`;
+        this.damageLayer.appendChild(el);
+        setTimeout(() => el.remove(), 800);
+    }
+
+    createMergeEffect(x, y) {
+        // Could add particle visual here
+    }
+
+    getEnemyPos(enemy) {
+        const w = this.canvas.width;
+        
+        if (enemy.pathId === 0) {
+            // Top Board: Simple straight line for now
+            const boardCenterY = this.topBoardOffset + (GRID_ROWS * this.slotSize)/2;
+            return { x: enemy.progress * w, y: boardCenterY };
+        } else {
+            // Bottom Board
+            const boardCenterY = this.bottomBoardOffset + (GRID_ROWS * this.slotSize)/2;
+            return { x: enemy.progress * w, y: boardCenterY };
+        }
+    }
+
+    updateTime() {
+        const now = Date.now();
+        const diff = Math.floor((now - this.startTime) / 1000);
+        const m = Math.floor(diff / 60).toString().padStart(2, '0');
+        const s = (diff % 60).toString().padStart(2, '0');
+        document.getElementById('game-time').innerText = `${m}:${s}`;
+    }
+
+    loop(timestamp) {
+        if (this.isGameOver) return;
+        
+        const dt = timestamp - this.lastTime;
+        this.lastTime = timestamp;
+
+        this.updateTime();
+
+        // Clear & Draw BG
+        this.ctx.fillStyle = CANVAS_BG;
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Draw Grids
+        this.drawGrid(this.topBoardOffset);
+        this.drawGrid(this.bottomBoardOffset);
+
+        // Spawning
+        this.spawnTimer++;
+        if (this.spawnTimer > 120) {
+            this.spawnEnemy();
+            this.spawnTimer = 0;
+            
+            // Wave Logic
+            if (Math.random() < 0.1) {
+                this.wave++;
+                document.getElementById('wave-num').innerText = this.wave;
+            }
+        }
+        
+        this.aiLogic();
+
+        // Process Enemies
+        this.enemies = this.enemies.filter(e => {
+            if (e.dead) return false;
+            
+            let moveSpeed = e.speed;
+            if (e.slowTimer > 0) {
+                moveSpeed *= 0.6;
+                e.slowTimer--;
+            }
+            e.progress += moveSpeed / (this.canvas.width / 5);
+            
+            const pos = this.getEnemyPos(e);
+            e.currX = pos.x;
+            e.currY = pos.y;
+            
+            // Draw Enemy
+            this.ctx.beginPath();
+            this.ctx.arc(e.currX, e.currY, e.radius, 0, Math.PI*2);
+            this.ctx.fillStyle = e.color;
+            this.ctx.fill();
+            
+            // HP Bar
+            const hpW = 20;
+            this.ctx.fillStyle = '#333';
+            this.ctx.fillRect(e.currX - hpW/2, e.currY - e.radius - 8, hpW, 4);
+            this.ctx.fillStyle = '#0f0';
+            this.ctx.fillRect(e.currX - hpW/2, e.currY - e.radius - 8, hpW * (e.hp/e.maxHp), 4);
+
+            if (e.progress >= 1) {
+                this.lives--;
+                this.updateUI();
+                if (this.lives <= 0) this.gameOver();
+                return false;
+            }
+            return true;
+        });
+
+        // Process Dice & Projectiles
+        const processBoard = (board) => {
+            board.forEach(d => {
+                const now = Date.now();
+                const stats = d.getStats(this.diceLevels);
+                
+                let drawX = d.isDragging ? d.dragX : d.x;
+                let drawY = d.isDragging ? d.dragY : d.y;
+                
+                // Draw Card Base
+                this.ctx.fillStyle = '#24283b';
+                this.ctx.beginPath();
+                this.ctx.roundRect(drawX - d.size/2, drawY - d.size/2, d.size, d.size, 8);
+                this.ctx.fill();
+                
+                // Draw Inner Color
+                this.ctx.fillStyle = stats.color;
+                this.ctx.beginPath();
+                this.ctx.roundRect(drawX - d.size/2 + 4, drawY - d.size/2 + 4, d.size - 8, d.size - 8, 4);
+                this.ctx.fill();
+                
+                // Pips
+                this.ctx.fillStyle = 'white';
+                this.drawPips(d.pips, drawX, drawY, d.size);
+
+                if (d.isDragging) return;
+
+                // Attack
+                if (now - d.lastAttack > stats.speed) {
+                    const pathId = d.isPlayer ? 1 : 0;
+                    let target = null;
+                    let maxProg = -1;
+                    
+                    this.enemies.forEach(e => {
+                        if (e.pathId === pathId && e.progress > maxProg && e.currX > 0) {
+                            maxProg = e.progress;
+                            target = e;
+                        }
+                    });
+
+                    if (target) {
+                        this.projectiles.push(new Projectile(drawX, drawY, target, d.typeIdx, stats.damage, d.isPlayer));
+                        d.lastAttack = now;
+                    }
+                }
+            });
+        };
+
+        processBoard(this.aiBoard);
+        processBoard(this.playerBoard);
+
+        // Projectiles
+        this.projectiles = this.projectiles.filter(p => {
+            if (!p.active) return false;
+            p.update();
+            this.ctx.beginPath();
+            this.ctx.arc(p.x, p.y, p.radius, 0, Math.PI*2);
+            this.ctx.fillStyle = DICE_TYPES[p.typeIdx].color;
+            this.ctx.fill();
+            return true;
+        });
+
+        requestAnimationFrame(this.loop);
+    }
+
+    drawGrid(offsetY) {
+        this.ctx.strokeStyle = '#2f3549';
+        this.ctx.lineWidth = 2;
+        
+        for(let r=0; r<GRID_ROWS; r++) {
+            for(let c=0; c<GRID_COLS; c++) {
+                const x = this.boardMarginX + c * this.slotSize;
+                const y = offsetY + r * this.slotSize;
+                this.ctx.strokeRect(x, y, this.slotSize, this.slotSize);
+            }
+        }
+    }
+
+    drawPips(count, x, y, size) {
+        const r = size / 12;
+        const step = size / 4;
+        const positions = [
+            [],
+            [{x:0, y:0}],
+            [{x:-1, y:-1}, {x:1, y:1}],
+            [{x:-1, y:-1}, {x:0, y:0}, {x:1, y:1}],
+            [{x:-1, y:-1}, {x:1, y:-1}, {x:-1, y:1}, {x:1, y:1}],
+            [{x:-1, y:-1}, {x:1, y:-1}, {x:0, y:0}, {x:-1, y:1}, {x:1, y:1}],
+            [{x:-1, y:-1}, {x:1, y:-1}, {x:-1, y:0}, {x:1, y:0}, {x:-1, y:1}, {x:1, y:1}],
+            [{x:-1, y:-1}, {x:1, y:-1}, {x:0, y:0}, {x:-1, y:0}, {x:1, y:0}, {x:-1, y:1}, {x:1, y:1}] // 7
+        ];
+        
+        const pos = positions[count] || positions[1];
+        
+        pos.forEach(p => {
+            this.ctx.beginPath();
+            this.ctx.arc(x + p.x*step, y + p.y*step, r, 0, Math.PI*2);
+            this.ctx.fill();
+        });
+    }
+
+    updateUI() {
+        document.getElementById('sp-amount').innerText = this.sp;
+        document.getElementById('summon-cost-text').innerText = this.summonCost + ' SP';
+        document.getElementById('cost-display').innerText = this.summonCost;
+        document.getElementById('dice-count-display').innerText = this.playerBoard.length;
+        
+        // Update Hearts
+        const hearts = '❤'.repeat(Math.max(0, this.lives));
+        document.getElementById('player-hearts').innerHTML = `<span class="heart-icon text-red-500">${hearts}</span>`;
+        
+        for(let i=0; i<5; i++) {
+            document.getElementById('cost-'+i).innerText = this.upgradeCosts[i];
+            document.getElementById('lv-'+i).innerText = 'Lv.' + this.diceLevels[i];
+            
+            const btn = document.querySelectorAll('.upgrade-btn')[i];
+            if(this.sp >= this.upgradeCosts[i]) btn.style.opacity = 1;
+            else btn.style.opacity = 0.5;
+        }
+
+        const sBtn = document.getElementById('summon-btn');
+        if(this.sp >= this.summonCost) sBtn.style.opacity = 1;
+        else sBtn.style.opacity = 0.5;
+    }
+
+    gameOver() {
+        this.isGameOver = true;
+        document.getElementById('game-over-modal').style.display = 'flex';
+        document.getElementById('final-score').innerText = '최종 웨이브: ' + this.wave;
+    }
+}
+
+const game = new Game();
+
+</script>
+</body>
+</html>
